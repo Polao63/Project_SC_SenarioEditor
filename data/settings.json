@@ -1,0 +1,26 @@
+{
+  "speakers": [
+    "미래",
+    "시헌",
+    "시월"
+  ],
+  "expressions": [
+    "기본",
+    "웃음",
+    "분노",
+    "당황"
+  ],
+  "positions": [
+    "Left",
+    "Center",
+    "Right"
+  ],
+  "backgrounds": [
+    "TEST_BG01",
+    "TEST_BG02"
+  ],
+  "transitions": [
+    "FadeIn",
+    "FadeOut"
+  ]
+}
