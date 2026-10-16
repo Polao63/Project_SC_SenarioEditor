@@ -1,4 +1,10 @@
+# TODO: 진입등장 애니메이션 여부 체크 옵션
+# 영문 옵션 -> 한글로 변환 (왼쪽, 오른쪽, 중앙 으로 지정하면 -> left, right, center 로 읽게 만들어야함.)
+
 import json
+import shutil
+import os
+import tempfile
 import sys
 from pathlib import Path
 from PySide6.QtWidgets import (
@@ -16,6 +22,9 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QMessageBox,
 )
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QPixmap
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 if getattr(sys, "frozen", False):
     BASE_PATH = Path(sys.executable).parent
@@ -45,7 +54,12 @@ class MainWindow(QWidget):
 
         open_settings(self)
 
-        self.scenario_data = None
+        self.scenario_data = {
+            "ScenarioEvents": []
+        }
+
+        self.scenario_events = self.scenario_data["ScenarioEvents"]
+        self.current_index = -1
 
         self.new_scenario_button = QPushButton("새 시나리오 만들기")
         self.new_scenario_button.clicked.connect(self.new_scenario)
@@ -122,6 +136,10 @@ class MainWindow(QWidget):
         self.edit_background_button = QPushButton("수정")
         self.delete_background_button = QPushButton("삭제")
 
+        self.add_sound_button = QPushButton("+")
+        self.edit_sound_button = QPushButton("수정")
+        self.delete_sound_button = QPushButton("삭제")
+
         self.add_transition_button = QPushButton("+")
         self.edit_transition_button = QPushButton("수정")
         self.delete_transition_button = QPushButton("삭제")
@@ -155,7 +173,7 @@ class MainWindow(QWidget):
         dialogue_layout.addWidget(self.delete_expression_button)
 
 
-        dialogue_layout.addWidget(QLabel("위치"))
+        dialogue_layout.addWidget(QLabel("(등장시 배치할)위치"))
         self.position_combo.currentTextChanged.connect(self.change_position)
         dialogue_layout.addWidget(self.position_combo)
         self.add_position_button.clicked.connect(lambda: self.add_setting(self.position_combo, "positions"))
@@ -205,14 +223,37 @@ class MainWindow(QWidget):
         background_layout = QVBoxLayout()
 
         background_layout.addWidget(QLabel("배경"))
+
+        self.background_preview = QLabel()
+        pixmap = QPixmap("backgrounds/TEST_BG01.jpg")
+        self.background_preview.setPixmap(pixmap)
+
+        self.background_preview.setFixedSize(480, 270)
+
+        self.background_preview.setPixmap(
+            pixmap.scaled(
+                480,
+                270,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+        )
+        background_layout.addWidget(self.background_preview)
+
         self.background_combo.currentTextChanged.connect(self.change_background)
+        
         background_layout.addWidget(self.background_combo)
-        self.add_background_button.clicked.connect(lambda: self.add_setting(self.background_combo, "backgrounds"))
+        self.add_background_button.clicked.connect(self.add_background_resource)
+        
         background_layout.addWidget(self.add_background_button)
-        self.edit_background_button.clicked.connect(lambda: self.edit_setting(self.background_combo, "backgrounds"))
+        self.edit_background_button.clicked.connect(
+            self.edit_background_resource
+        )
+
         background_layout.addWidget(self.edit_background_button)
         self.delete_background_button.clicked.connect(lambda: self.delete_setting(self.background_combo, "backgrounds"))
         background_layout.addWidget(self.delete_background_button)
+
 
         self.background_editor.setLayout(background_layout)
 
@@ -242,6 +283,66 @@ class MainWindow(QWidget):
         self.transition_editor.setLayout(transition_layout)
 
         self.editor_stack.addWidget(self.transition_editor)
+
+
+
+        # 사운드 파일 관련
+
+        self.audio_player = QMediaPlayer()
+        self.audio_output = QAudioOutput()
+
+        self.audio_player.setAudioOutput(self.audio_output)
+        self.audio_output.setVolume(0.5)
+        self.preview_play_button = QPushButton("▶ 미리듣기")
+        self.preview_stop_button = QPushButton("■ 정지")
+
+        self.soundtype_combo = QComboBox()
+        self.soundtype_combo.addItems(["BGM", "SE"])
+
+        self.sound_play_editor = QWidget()
+
+        self.sound_combo = QComboBox()
+        sound_play_layout = QVBoxLayout()
+
+        sound_play_layout.addWidget(QLabel("사운드 종류"))
+        sound_play_layout.addWidget(self.soundtype_combo)
+        self.soundtype_combo.currentTextChanged.connect(self.change_sound_type)
+
+        sound_play_layout.addWidget(QLabel("사운드 선택"))
+        sound_play_layout.addWidget(self.sound_combo)
+        self.sound_combo.currentTextChanged.connect(self.change_sound_name)
+
+        sound_play_layout.addWidget(self.preview_play_button)
+        self.preview_play_button.clicked.connect(self.preview_sound)
+        sound_play_layout.addWidget(self.preview_stop_button)
+        self.preview_stop_button.clicked.connect(self.stop_preview_sound)
+
+        self.action_combo = QComboBox()
+        self.action_combo.addItems(["Play", "Stop"])
+        self.action_combo.currentTextChanged.connect(self.change_sound_action)
+
+        sound_play_layout.addWidget(QLabel("재생 동작"))
+        sound_play_layout.addWidget(self.action_combo)
+        self.add_sound_button.clicked.connect(self.add_sound_resource)
+        
+        sound_play_layout.addWidget(self.add_sound_button)
+        self.edit_sound_button.clicked.connect(
+            self.edit_sound_resource
+        )
+
+        sound_play_layout.addWidget(self.edit_sound_button)
+        self.delete_sound_button.clicked.connect(
+            lambda: self.delete_setting(
+                self.sound_combo,
+                self.get_sound_setting_key()
+            )
+        )
+        sound_play_layout.addWidget(self.delete_sound_button)
+
+
+        self.sound_play_editor.setLayout(sound_play_layout)
+        self.editor_stack.addWidget(self.sound_play_editor)
+
 
         # 메인 창에 붙이기
         main_layout = QHBoxLayout()
@@ -296,13 +397,32 @@ class MainWindow(QWidget):
 
             case "background":
                 self.editor_stack.setCurrentIndex(2)
-
                 self.background_combo.setCurrentText(event["background"])
+                self.update_background_preview(event["background"])
 
             case "transition":
                 self.editor_stack.setCurrentIndex(3)     
 
-                self.transition_combo.setCurrentText(event["transition_type"])   
+                self.transition_combo.setCurrentText(event["transition_type"]) 
+
+            case "sound":
+                self.editor_stack.setCurrentIndex(4)
+
+                self.soundtype_combo.blockSignals(True)
+                self.sound_combo.blockSignals(True)
+                self.action_combo.blockSignals(True)
+
+                self.soundtype_combo.setCurrentText(event["sound_type"])
+                self.update_sound_combo(event["sound_type"])
+                self.sound_combo.setCurrentText(event["sound_name"])
+
+                self.action_combo.setCurrentText(event.get("sound_action", "Play"))
+                self.action_combo.setEnabled(event["sound_type"] == "BGM")
+                self.sound_combo.setEnabled(self.action_combo.currentText() == "Play")  
+
+                self.soundtype_combo.blockSignals(False)
+                self.sound_combo.blockSignals(False)
+                self.action_combo.blockSignals(False)
 
 
     # 새 항목 추가
@@ -354,6 +474,11 @@ class MainWindow(QWidget):
                     "요소는 최소 1개 이상 있어야 합니다."
                 )
                 return
+
+            if setting_key in ("bgms", "ses"):
+                self.audio_player.stop()
+                self.audio_player.setSource(QUrl())
+
             index = combo.currentIndex()
             self.settings[setting_key].pop(index)
             combo.removeItem(index)
@@ -384,13 +509,38 @@ class MainWindow(QWidget):
         self.scenario_events[self.current_index]["text"] = value
         self.update_event_list_item()
 
-
     def change_background(self, value):
         self.scenario_events[self.current_index]["background"] = value
         self.update_event_list_item()
+        self.update_background_preview(value)
 
     def change_transition_type(self, value):
         self.scenario_events[self.current_index]["transition_type"] = value
+        self.update_event_list_item()
+
+    def change_sound_type(self, value):
+        self.scenario_events[self.current_index]["sound_type"] = value
+
+        self.update_sound_combo(value)
+
+        if value == "SE":
+            self.action_combo.setCurrentText("Play")
+
+        self.action_combo.setEnabled(value == "BGM")
+
+        self.update_event_list_item()
+
+    def change_sound_name(self, value):
+        self.scenario_events[self.current_index]["sound_name"] = value
+        self.update_event_list_item()
+
+    def change_sound_action(self, value):
+        self.scenario_events[self.current_index]["sound_action"] = value
+        if value == "Stop":
+            self.scenario_events[self.current_index]["sound_name"] = "X"
+        else:
+            self.scenario_events[self.current_index]["sound_name"] = self.sound_combo.currentText()
+        self.sound_combo.setEnabled(value == "Play")
         self.update_event_list_item()
 
     # 이벤트 관리
@@ -399,7 +549,7 @@ class MainWindow(QWidget):
             self,
             "이벤트 추가",
             "이벤트 타입:",
-            ["dialogue", "narration", "background", "transition"],
+            ["dialogue", "narration", "background", "transition", "sound"],
             0,
             False
         )
@@ -431,6 +581,13 @@ class MainWindow(QWidget):
                     new_event = {
                         "type": "transition",
                         "transition_type": self.settings["transitions"][0]
+                    }
+                case "sound":
+                    new_event = {
+                        "type": "sound",
+                        "sound_type": "BGM",
+                        "sound_name": self.settings["bgms"][0] if self.settings["bgms"] else "",
+                        "sound_action": "Play"
                     }
 
             self.scenario_events.append(new_event)
@@ -470,7 +627,16 @@ class MainWindow(QWidget):
                     f'{event["transition_type"]}'
                 )
 
+            case "sound":
+                item.setText(
+                    f'{self.current_index} sound '
+                    f'{event["sound_type"]} '
+                    f'{event["sound_name"]}'
+                )
+
     def delete_event_list_item(self):
+        if not 0 <= self.current_index < len(self.scenario_events):
+            return
         del self.scenario_events[self.current_index]
         self.event_list.takeItem(self.current_index)
 
@@ -517,10 +683,315 @@ class MainWindow(QWidget):
                     transition_type = event["transition_type"]
 
                     self.event_list.addItem(f"{index} {event_type} {transition_type}")
+                case "sound":
+                    sound_type = event["sound_type"]
+                    sound_name = event["sound_name"]
 
+                    self.event_list.addItem(
+                        f"{index} {event_type} {sound_type} {sound_name}"
+                    )
                 case _:
                     print("알 수 없는 타입")
 
+    def edit_background_resource(self):
+        background_name = self.background_combo.currentText()
+
+        if not background_name:
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "교체할 배경 이미지 선택",
+            "",
+            "이미지 파일 (*.png *.jpg *.jpeg *.webp)"
+        )
+
+        if not file_path:
+            return
+
+        source = Path(file_path)
+
+        result = QMessageBox.question(
+            self,
+            "배경 이미지 교체",
+            f"'{background_name}' 배경 이미지를 교체하시겠습니까?\n"
+            "기존 파일은 덮어쓰거나 삭제되며 복구할 수 없습니다.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if result != QMessageBox.Yes:
+            return
+
+        background_dir = BASE_PATH / "backgrounds"
+
+        old_file = None
+
+        for extension in [".png", ".jpg", ".jpeg", ".webp"]:
+            candidate = background_dir / f"{background_name}{extension}"
+
+            if candidate.exists():
+                old_file = candidate
+                break
+
+        if old_file is None:
+            QMessageBox.warning(
+                self,
+                "파일 없음",
+                f"'{background_name}' 배경 이미지 파일을 찾을 수 없습니다."
+            )
+            return
+
+        new_file = background_dir / f"{background_name}{source.suffix.lower()}"
+
+        temp_path = None
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=background_dir,
+                suffix=source.suffix.lower(),
+                delete=False
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+
+            shutil.copy2(source, temp_path)
+
+            os.replace(temp_path, new_file)
+            temp_path = None
+
+            if old_file != new_file:
+                old_file.unlink()
+
+            self.update_background_preview(background_name)
+
+            QMessageBox.information(
+                self,
+                "교체 완료",
+                f"'{background_name}' 배경 이미지를 교체했습니다."
+            )
+
+        except OSError as error:
+            QMessageBox.critical(
+                self,
+                "교체 실패",
+                f"배경 이미지 교체 중 오류가 발생했습니다.\n{error}"
+            )
+
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+    def edit_sound_resource(self):
+        sound_name = self.sound_combo.currentText()
+
+        if not sound_name:
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "교체할 사운드 선택",
+            "",
+            "사운드 파일 (*.mp3 *.wav *.ogg)"
+        )
+
+        if not file_path:
+            return
+
+        source = Path(file_path)
+
+        result = QMessageBox.question(
+            self,
+            "사운드 교체",
+            f"'{sound_name}' 사운드를 교체하시겠습니까?\n"
+            "기존 파일은 덮어쓰거나 삭제되며 복구할 수 없습니다.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if result != QMessageBox.Yes:
+            return
+
+        sound_type = self.soundtype_combo.currentText()
+
+        if sound_type == "BGM":
+            sound_dir = BASE_PATH / "sounds" / "bgm"
+        else:
+            sound_dir = BASE_PATH / "sounds" / "se"
+
+        old_file = None
+
+        for extension in [".mp3", ".wav", ".ogg"]:
+            candidate = sound_dir / f"{sound_name}{extension}"
+
+            if candidate.exists():
+                old_file = candidate
+                break
+
+        if old_file is None:
+            QMessageBox.warning(
+                self,
+                "파일 없음",
+                f"'{sound_name}' 사운드 파일을 찾을 수 없습니다."
+            )
+            return
+
+        new_file = sound_dir / f"{sound_name}{source.suffix.lower()}"
+
+        temp_path = None
+
+        try:
+            self.audio_player.stop()
+            self.audio_player.setSource(QUrl())
+            with tempfile.NamedTemporaryFile(
+                dir=sound_dir,
+                suffix=source.suffix.lower(),
+                delete=False
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+
+            shutil.copy2(source, temp_path)
+
+            os.replace(temp_path, new_file)
+            temp_path = None
+
+            if old_file != new_file:
+                old_file.unlink()
+
+            QMessageBox.information(
+                self,
+                "교체 완료",
+                f"'{sound_name}' 사운드를 교체했습니다."
+            )
+
+        except OSError as error:
+            QMessageBox.critical(
+                self,
+                "교체 실패",
+                f"사운드 교체 중 오류가 발생했습니다.\n{error}"
+            )
+
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+
+    def update_background_preview(self, background_name):
+        print(background_name)
+        self.background_preview.clear()
+        background_dir = BASE_PATH / "backgrounds"
+
+        for extension in [".png", ".jpg", ".jpeg", ".webp"]:
+            image_path = background_dir / f"{background_name}{extension}"
+
+            if image_path.exists():
+                pixmap = QPixmap(str(image_path))
+
+                self.background_preview.setPixmap(
+                    pixmap.scaled(
+                        480, 270,
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation
+                    )
+                )
+                return
+            self.background_preview.setText("배경 이미지를 찾을 수 없습니다.")
+
+    def update_sound_combo(self, sound_type):
+        self.sound_combo.clear()
+
+        if sound_type == "BGM":
+            self.sound_combo.addItems(self.settings["bgms"])
+        elif sound_type == "SE":
+            self.sound_combo.addItems(self.settings["ses"])
+
+    def preview_sound(self):
+        sound_type = self.soundtype_combo.currentText()
+        sound_name = self.sound_combo.currentText()
+
+        if sound_type == "BGM":
+            sound_dir = BASE_PATH / "sounds" / "bgm"
+        else:
+            sound_dir = BASE_PATH / "sounds" / "se"
+
+        for extension in [".mp3", ".wav", ".ogg"]:
+            sound_path = sound_dir / f"{sound_name}{extension}"
+
+            if sound_path.exists():
+                self.audio_player.setSource(
+                    QUrl.fromLocalFile(str(sound_path))
+                )
+                self.audio_player.play()
+                return
+
+        QMessageBox.warning(
+            self,
+            "파일 없음",
+            f"사운드 파일을 찾을 수 없습니다: {sound_name}"
+        )
+
+    def stop_preview_sound(self):
+        self.audio_player.stop()
+
+    def add_sound_resource(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "오디오 파일 선택",
+            "",
+            "오디오 파일 (*.mp3 *.wav *.ogg)"
+        )
+
+        if not file_path:
+            return
+    
+        source = Path(file_path)
+        sound_name = source.stem
+        sound_type = self.soundtype_combo.currentText()
+
+        if sound_type == "BGM":
+            destination_dir = BASE_PATH / "sounds" / "bgm"
+            setting_key = "bgms"
+        else:
+            destination_dir = BASE_PATH / "sounds" / "se"
+            setting_key = "ses"
+
+        if sound_name in self.settings[setting_key]:
+            QMessageBox.warning(
+                self,
+                "중복된 사운드",
+                f"'{sound_name}' 사운드는 이미 등록되어 있습니다."
+            )
+            return
+        
+        for extension in [".mp3", ".wav", ".ogg"]:
+            existing_file = destination_dir / f"{sound_name}{extension}"
+
+            if existing_file.exists():
+                QMessageBox.warning(
+                    self,
+                    "중복된 파일",
+                    f"'{sound_name}' 이름의 사운드 파일이 이미 존재합니다."
+                )
+                return
+            
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination_dir)
+
+        print(f"복사 완료: {destination_dir}")
+
+        self.settings[setting_key].append(sound_name)
+        self.sound_combo.addItem(sound_name)
+
+        save_settings(self)
+
+        self.sound_combo.setCurrentText(sound_name)
+
+    def get_sound_setting_key(self):
+        sound_type = self.soundtype_combo.currentText()
+
+        if sound_type == "BGM":
+            return "bgms"
+        else:
+            return "ses"
 
     def open_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -573,6 +1044,11 @@ class MainWindow(QWidget):
 
                         self.event_list.addItem(f"{index} {event_type} {transition_type}")
 
+                    case "sound":
+                        sound_type = event["sound_type"]
+                        sound_name = event["sound_name"]
+                        self.event_list.addItem(f"{index} {event_type} {sound_type} {sound_name}")
+
                     case _:
                         print("대본에 알 수 없는 타입이 있습니다.")
             
@@ -593,6 +1069,57 @@ class MainWindow(QWidget):
                     indent=2
                 )
 
+    def add_background_resource(self):
+        
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "배경 이미지 선택",
+            "",
+            "이미지 파일 (*.png *.jpg *.jpeg *.webp)"
+        )
+
+        if not file_path:
+            return
+
+        source = Path(file_path)
+        background_name = source.stem
+
+        destination_dir = BASE_PATH / "backgrounds"
+        destination_dir.mkdir(parents=True, exist_ok=True)
+
+        destination = destination_dir / source.name
+
+        if background_name in self.settings["backgrounds"]:
+            QMessageBox.warning(
+                self,
+                "중복된 배경",
+                f"'{background_name}' 배경은 이미 등록되어 있습니다."
+            )
+            return
+        
+        for extension in [".png", ".jpg", ".jpeg", ".webp"]:
+            existing_file = destination_dir / f"{background_name}{extension}"
+
+            if existing_file.exists():
+                QMessageBox.warning(
+                    self,
+                    "중복된 파일",
+                    f"'{background_name}' 이름의 이미지 파일이 이미 존재합니다."
+                )
+                return
+
+
+
+        shutil.copy2(source, destination)
+
+        print(f"복사 완료: {destination}")
+
+        if background_name not in self.settings["backgrounds"]:
+            self.settings["backgrounds"].append(background_name)
+            self.background_combo.addItem(background_name)
+
+            save_settings(self)
+            self.background_combo.setCurrentText(background_name)
 
 def main():
     app = QApplication([])
