@@ -1,6 +1,7 @@
 # TODO: 진입등장 애니메이션 여부 체크 옵션
 # 영문 옵션 -> 한글로 변환 (왼쪽, 오른쪽, 중앙 으로 지정하면 -> left, right, center 로 읽게 만들어야함.)
 
+from ScenarioPreview import ScenarioPreview
 import json
 import shutil
 import os
@@ -21,8 +22,9 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QInputDialog,
     QMessageBox,
+    QSplitter,
 )
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, QSignalBlocker
 from PySide6.QtGui import QPixmap
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
@@ -107,9 +109,22 @@ class MainWindow(QWidget):
             "시나리오를 불러오거나 새 이벤트를 추가해주세요."
         )
 
+        self.scenario_preview = ScenarioPreview()
+
+        self.right_splitter = QSplitter(Qt.Vertical)
+        self.right_splitter.addWidget(self.scenario_preview)
+
+        self.editor_container = QWidget()
+        editor_layout = QVBoxLayout(self.editor_container)
+        editor_layout.addWidget(self.empty_label)
+        editor_layout.addWidget(self.editor_stack)
+
+        self.right_splitter.addWidget(self.editor_container)
+        self.right_splitter.setSizes([500, 400])
+
         right_layout = QVBoxLayout()
-        right_layout.addWidget(self.empty_label)
-        right_layout.addWidget(self.editor_stack)
+        right_layout.addWidget(self.right_splitter)
+
         self.empty_label.show()
         self.editor_stack.hide()
 
@@ -345,10 +360,22 @@ class MainWindow(QWidget):
 
 
         # 메인 창에 붙이기
+        left_container = QWidget()
+        left_container.setLayout(left_layout)
+
+        right_container = QWidget()
+        right_container.setLayout(right_layout)
+
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.addWidget(left_container)
+        self.main_splitter.addWidget(right_container)
+        self.main_splitter.setSizes([350, 950])
+
         main_layout = QHBoxLayout()
-        main_layout.addLayout(left_layout)
-        main_layout.addLayout(right_layout)
+        main_layout.addWidget(self.main_splitter)
+
         self.setLayout(main_layout)
+        self.resize(1400, 900)
         # self.new_scenario()
 
     # 새로운 시나리오 만들기
@@ -382,14 +409,32 @@ class MainWindow(QWidget):
         self.current_index = index
 
         event = self.scenario_events[index]
+
+        background_name = self.find_previous_background(index)
+
+        if background_name is not None:
+            self.update_background_preview(background_name)
+        else:
+            self.scenario_preview.clear_background()
+
         match event["type"]:
             case "dialogue":
                 self.editor_stack.setCurrentIndex(0)
 
-                self.speaker_combo.setCurrentText(event["speaker"])
-                self.expression_combo.setCurrentText(event["expression"])
-                self.position_combo.setCurrentText(event.get("position", "Center"))
-                self.dialogue_text_edit.setPlainText(event["text"])
+                with (
+                    QSignalBlocker(self.speaker_combo),
+                    QSignalBlocker(self.expression_combo),
+                    QSignalBlocker(self.position_combo),
+                    QSignalBlocker(self.dialogue_text_edit),
+                ):
+
+                    self.speaker_combo.setCurrentText(event["speaker"])
+                    self.expression_combo.setCurrentText(event["expression"])
+                    self.position_combo.setCurrentText(event.get("position", "Center"))
+                    self.dialogue_text_edit.setPlainText(event["text"])
+
+                self.scenario_preview.set_speaker(speaker = event["speaker"])
+                self.scenario_preview.set_dialogue_text(text = event["text"])
 
             case "narration":
                 self.editor_stack.setCurrentIndex(1)
@@ -397,7 +442,10 @@ class MainWindow(QWidget):
 
             case "background":
                 self.editor_stack.setCurrentIndex(2)
-                self.background_combo.setCurrentText(event["background"])
+
+                with QSignalBlocker(self.background_combo):
+                    self.background_combo.setCurrentText(event["background"])
+
                 self.update_background_preview(event["background"])
 
             case "transition":
@@ -488,6 +536,7 @@ class MainWindow(QWidget):
     def change_speaker(self, value):
         self.scenario_events[self.current_index]["speaker"] = value
         self.update_event_list_item()
+        self.scenario_preview.set_speaker(speaker=value)
 
     def change_expression(self, value):
         self.scenario_events[self.current_index]["expression"] = value
@@ -502,6 +551,7 @@ class MainWindow(QWidget):
 
         self.scenario_events[self.current_index]["text"] = value
         self.update_event_list_item()
+        self.scenario_preview.set_dialogue_text(text=value)
 
     def change_narration_text(self):
         value = self.narration_text_edit.toPlainText()
@@ -893,8 +943,26 @@ class MainWindow(QWidget):
                         Qt.SmoothTransformation
                     )
                 )
+
+                self.scenario_preview.set_background(str(image_path))
+
                 return
-            self.background_preview.setText("배경 이미지를 찾을 수 없습니다.")
+            
+        # self.background_preview.setText("배경 이미지를 찾을 수 없습니다.")
+        self.scenario_preview.clear_background(
+            "배경 이미지 파일을 찾을 수 없습니다."
+        )
+
+    def find_previous_background(self, index):
+
+        for i in range(index, -1, -1):
+
+            event = self.scenario_events[i]
+
+            if event["type"] == "background":
+                return event["background"]
+
+        return None        
 
     def update_sound_combo(self, sound_type):
         self.sound_combo.clear()
