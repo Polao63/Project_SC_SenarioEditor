@@ -385,22 +385,31 @@ class MainWindow(QWidget):
 
     # 새로운 시나리오 만들기
     def new_scenario(self):
-        # if self.scenario_data is not None:
-        if self.event_list.count() > 0:
+        
+        if not self.is_modified and self.event_list.count() > 0:
             result = QMessageBox.question(
-            self,
-            "새 시나리오 작성",
-            "현재 작업 중인 시나리오가 있습니다. \n현재 작업 중인 파일의 저장을 권장합니다. \n정말 새 시나리오를 만드시겠습니까?",
-            QMessageBox.Yes | QMessageBox.No
+                self,
+                "새 시나리오 작성",
+                "현재 시나리오를 닫고 새 시나리오를 만드시겠습니까?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
             )
+
             if result == QMessageBox.No:
                 return
+
+        if not self.confirm_unsaved_changes():
+            return
 
         self.scenario_data = {
             "ScenarioEvents": []
         }
         self.scenario_events = self.scenario_data["ScenarioEvents"]
         self.event_list.clear()
+        self.scenario_preview.clear_background()
+        
+        self.is_modified = False
+        self.setWindowTitle("ProjectSC Scenario Editor")
 
     def select_event(self, index):
         if index < 0:
@@ -1084,6 +1093,9 @@ class MainWindow(QWidget):
             return "ses"
 
     def open_file(self):
+        if not self.confirm_unsaved_changes():
+            return
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "대본 불러오기",
@@ -1093,19 +1105,23 @@ class MainWindow(QWidget):
 
         if file_path:
             with open(file_path, "r", encoding="utf-8") as file:
-                self.scenario_data = json.load(file)
+                loaded_data = json.load(file)
 
-                if "ScenarioEvents" not in self.scenario_data:
+                if "ScenarioEvents" not in loaded_data:
                     QMessageBox.warning(
                         self,
                         "잘못된 파일",
                         "시나리오 파일이 아닙니다.\n올바른 시나리오 JSON 파일을 선택해주세요."
                     )
-                    return
-                
+                    return                
+
+            self.scenario_data = loaded_data
             self.scenario_events = self.scenario_data["ScenarioEvents"]
 
             self.event_list.clear()
+
+            self.is_modified = False
+            self.setWindowTitle("ProjectSC Scenario Editor")
 
 
             for index, event in enumerate(self.scenario_events):
@@ -1217,10 +1233,9 @@ class MainWindow(QWidget):
         self.is_modified = True
         self.setWindowTitle("ProjectSC Scenario Editor *")
 
-    def closeEvent(self, event):
+    def confirm_unsaved_changes(self):
         if not self.is_modified:
-            event.accept()
-            return
+            return True
 
         result = QMessageBox.question(
             self,
@@ -1232,18 +1247,19 @@ class MainWindow(QWidget):
 
         if result == QMessageBox.Save:
             self.save_file()
-            if not self.is_modified:
-                event.accept()
-                return
+            return not self.is_modified
 
         elif result == QMessageBox.Discard:
-            event.accept()
-            return
+            return True
 
         else:
-            print("취소 선택!")
+            return False
 
-        event.ignore()
+    def closeEvent(self, event):
+        if self.confirm_unsaved_changes():
+            event.accept()
+        else:
+            event.ignore()
 
 def main():
     app = QApplication([])
