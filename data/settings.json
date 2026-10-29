@@ -22,5 +22,13 @@
   "transitions": [
     "FadeIn",
     "FadeOut"
+  ],
+  "bgms": [
+    "BGM01",
+    "BGM02"
+  ],
+  "ses": [
+    "fire",
+    "shoot"
   ]
 }

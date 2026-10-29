@@ -63,6 +63,11 @@ class MainWindow(QWidget):
         self.scenario_events = self.scenario_data["ScenarioEvents"]
         self.current_index = -1
 
+        self.is_modified = False
+
+        self.setWindowTitle("ProjectSC Scenario Editor")
+
+
         self.new_scenario_button = QPushButton("새 시나리오 만들기")
         self.new_scenario_button.clicked.connect(self.new_scenario)
 
@@ -438,7 +443,9 @@ class MainWindow(QWidget):
 
             case "narration":
                 self.editor_stack.setCurrentIndex(1)
-                self.narration_text_edit.setPlainText(event["text"])
+
+                with QSignalBlocker(self.narration_text_edit):
+                    self.narration_text_edit.setPlainText(event["text"])
 
             case "background":
                 self.editor_stack.setCurrentIndex(2)
@@ -537,14 +544,17 @@ class MainWindow(QWidget):
         self.scenario_events[self.current_index]["speaker"] = value
         self.update_event_list_item()
         self.scenario_preview.set_speaker(speaker=value)
+        self.mark_modified()
 
     def change_expression(self, value):
         self.scenario_events[self.current_index]["expression"] = value
         self.update_event_list_item()
+        self.mark_modified()
 
     def change_position(self, value):
         self.scenario_events[self.current_index]["position"] = value
         self.update_event_list_item()
+        self.mark_modified()
 
     def change_dialogue_text(self):
         value = self.dialogue_text_edit.toPlainText()
@@ -552,6 +562,7 @@ class MainWindow(QWidget):
         self.scenario_events[self.current_index]["text"] = value
         self.update_event_list_item()
         self.scenario_preview.set_dialogue_text(text=value)
+        self.mark_modified()
 
     def change_narration_text(self):
         value = self.narration_text_edit.toPlainText()
@@ -559,14 +570,18 @@ class MainWindow(QWidget):
         self.scenario_events[self.current_index]["text"] = value
         self.update_event_list_item()
 
+        self.mark_modified()
+
     def change_background(self, value):
         self.scenario_events[self.current_index]["background"] = value
         self.update_event_list_item()
         self.update_background_preview(value)
+        self.mark_modified()
 
     def change_transition_type(self, value):
         self.scenario_events[self.current_index]["transition_type"] = value
         self.update_event_list_item()
+        self.mark_modified()
 
     def change_sound_type(self, value):
         self.scenario_events[self.current_index]["sound_type"] = value
@@ -579,10 +594,12 @@ class MainWindow(QWidget):
         self.action_combo.setEnabled(value == "BGM")
 
         self.update_event_list_item()
+        self.mark_modified()
 
     def change_sound_name(self, value):
         self.scenario_events[self.current_index]["sound_name"] = value
         self.update_event_list_item()
+        self.mark_modified()
 
     def change_sound_action(self, value):
         self.scenario_events[self.current_index]["sound_action"] = value
@@ -592,6 +609,7 @@ class MainWindow(QWidget):
             self.scenario_events[self.current_index]["sound_name"] = self.sound_combo.currentText()
         self.sound_combo.setEnabled(value == "Play")
         self.update_event_list_item()
+        self.mark_modified()
 
     # 이벤트 관리
     def add_event_list_item(self):
@@ -645,6 +663,7 @@ class MainWindow(QWidget):
 
             new_index = len(self.scenario_events) - 1
             self.event_list.setCurrentRow(new_index)
+            self.mark_modified()
 
     def update_event_list_item(self):
         event = self.scenario_events[self.current_index]
@@ -689,6 +708,7 @@ class MainWindow(QWidget):
             return
         del self.scenario_events[self.current_index]
         self.event_list.takeItem(self.current_index)
+        self.mark_modified()
 
     def moveup_event_list_item(self):
         if self.current_index <= 0:
@@ -697,6 +717,7 @@ class MainWindow(QWidget):
         self.scenario_events.insert(self.current_index - 1, event)
         self.event_list.setCurrentRow(self.current_index - 1)
         self.refresh_event_list()
+        self.mark_modified()
 
     def movedown_event_list_item(self):
         if self.current_index >= len(self.scenario_events) - 1:
@@ -705,6 +726,7 @@ class MainWindow(QWidget):
         self.scenario_events.insert(self.current_index + 1, event)
         self.event_list.setCurrentRow(self.current_index + 1)
         self.refresh_event_list()
+        self.mark_modified()
 
     def refresh_event_list(self):
         self.event_list.clear()
@@ -1136,6 +1158,8 @@ class MainWindow(QWidget):
                     ensure_ascii=False,
                     indent=2
                 )
+            self.is_modified = False
+            self.setWindowTitle("ProjectSC Scenario Editor")
 
     def add_background_resource(self):
         
@@ -1188,6 +1212,38 @@ class MainWindow(QWidget):
 
             save_settings(self)
             self.background_combo.setCurrentText(background_name)
+
+    def mark_modified(self):
+        self.is_modified = True
+        self.setWindowTitle("ProjectSC Scenario Editor *")
+
+    def closeEvent(self, event):
+        if not self.is_modified:
+            event.accept()
+            return
+
+        result = QMessageBox.question(
+            self,
+            "저장되지 않은 변경 사항",
+            "변경 사항이 저장되지 않았습니다.\n저장하시겠습니까?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Save
+        )
+
+        if result == QMessageBox.Save:
+            self.save_file()
+            if not self.is_modified:
+                event.accept()
+                return
+
+        elif result == QMessageBox.Discard:
+            event.accept()
+            return
+
+        else:
+            print("취소 선택!")
+
+        event.ignore()
 
 def main():
     app = QApplication([])
