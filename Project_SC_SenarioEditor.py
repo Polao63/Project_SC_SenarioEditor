@@ -1114,6 +1114,30 @@ class MainWindow(QWidget):
             with open(file_path, "r", encoding="utf-8") as file:
                 loaded_data = json.load(file)
 
+            if not isinstance(loaded_data, dict):
+                QMessageBox.warning(
+                    self,
+                    "잘못된 파일",
+                    "시나리오 데이터는 딕셔너리여야 합니다."
+                )
+                return
+
+            if "ScenarioEvents" not in loaded_data:
+                QMessageBox.warning(
+                    self,
+                    "잘못된 파일",
+                    "ScenarioEvents 정보가 없습니다."
+                )
+                return
+
+            if not isinstance(loaded_data["ScenarioEvents"], list):
+                QMessageBox.warning(
+                    self,
+                    "잘못된 파일",
+                    "ScenarioEvents는 리스트여야 합니다."
+                )
+                return
+
             required_keys_by_type = {
                 "dialogue": ["speaker", "expression", "text"],
                 "narration": ["text"],
