@@ -1096,67 +1096,87 @@ class MainWindow(QWidget):
         if not self.confirm_unsaved_changes():
             return
 
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "대본 불러오기",
-            "",
-            "JSON 파일 (*.json)"
-        )
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "대본 불러오기",
+                "",
+                "JSON 파일 (*.json)"
+            )
 
-        if file_path:
+            if not file_path:
+                return
+            
             with open(file_path, "r", encoding="utf-8") as file:
                 loaded_data = json.load(file)
 
-                if "ScenarioEvents" not in loaded_data:
-                    QMessageBox.warning(
-                        self,
-                        "잘못된 파일",
-                        "시나리오 파일이 아닙니다.\n올바른 시나리오 JSON 파일을 선택해주세요."
-                    )
-                    return                
+            if "ScenarioEvents" not in loaded_data:
+                QMessageBox.warning(
+                    self,
+                    "잘못된 파일",
+                    "시나리오 파일이 아닙니다.\n올바른 시나리오 JSON 파일을 선택해주세요."
+                )
+                return
+                                 
+        except FileNotFoundError:
+            QMessageBox.warning(
+                self,
+                "파일 오류",
+                "파일을 찾을 수 없습니다!"
+            )
+            return
+        except json.JSONDecodeError:
+            QMessageBox.warning(
+                self,
+                "파일 오류",
+                "JSON 파일의 형식이 잘못되었습니다!"
+            )
+            return
 
-            self.scenario_data = loaded_data
-            self.scenario_events = self.scenario_data["ScenarioEvents"]
+        
 
-            self.event_list.clear()
+        self.scenario_data = loaded_data
+        self.scenario_events = self.scenario_data["ScenarioEvents"]
 
-            self.is_modified = False
-            self.setWindowTitle("ProjectSC Scenario Editor")
+        self.event_list.clear()
+
+        self.is_modified = False
+        self.setWindowTitle("ProjectSC Scenario Editor")
 
 
-            for index, event in enumerate(self.scenario_events):
-                event_type = event["type"]
+        for index, event in enumerate(self.scenario_events):
+            event_type = event["type"]
 
-                match event_type:
-                    case "dialogue":
-                        speaker = event["speaker"]
-                        expression = event["expression"]
-                        text = event["text"]
+            match event_type:
+                case "dialogue":
+                    speaker = event["speaker"]
+                    expression = event["expression"]
+                    text = event["text"]
 
-                        self.event_list.addItem(f"{index} {event_type} {speaker} {expression} {text}")
+                    self.event_list.addItem(f"{index} {event_type} {speaker} {expression} {text}")
 
-                    case "narration":
-                        text = event["text"]
+                case "narration":
+                    text = event["text"]
 
-                        self.event_list.addItem(f"{index} {event_type} {text}")
+                    self.event_list.addItem(f"{index} {event_type} {text}")
 
-                    case "background":
-                        background = event["background"]
+                case "background":
+                    background = event["background"]
 
-                        self.event_list.addItem(f"{index} {event_type} {background}")
+                    self.event_list.addItem(f"{index} {event_type} {background}")
 
-                    case "transition":
-                        transition_type = event["transition_type"]
+                case "transition":
+                    transition_type = event["transition_type"]
 
-                        self.event_list.addItem(f"{index} {event_type} {transition_type}")
+                    self.event_list.addItem(f"{index} {event_type} {transition_type}")
 
-                    case "sound":
-                        sound_type = event["sound_type"]
-                        sound_name = event["sound_name"]
-                        self.event_list.addItem(f"{index} {event_type} {sound_type} {sound_name}")
+                case "sound":
+                    sound_type = event["sound_type"]
+                    sound_name = event["sound_name"]
+                    self.event_list.addItem(f"{index} {event_type} {sound_type} {sound_name}")
 
-                    case _:
-                        print("대본에 알 수 없는 타입이 있습니다.")
+                case _:
+                    print("대본에 알 수 없는 타입이 있습니다.")
             
     def save_file(self):
         file_path, _ = QFileDialog.getSaveFileName(
