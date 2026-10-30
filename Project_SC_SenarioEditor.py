@@ -456,6 +456,9 @@ class MainWindow(QWidget):
                 with QSignalBlocker(self.narration_text_edit):
                     self.narration_text_edit.setPlainText(event["text"])
 
+                self.scenario_preview.set_speaker("")
+                self.scenario_preview.set_dialogue_text(event["text"])
+
             case "background":
                 self.editor_stack.setCurrentIndex(2)
 
@@ -578,6 +581,7 @@ class MainWindow(QWidget):
 
         self.scenario_events[self.current_index]["text"] = value
         self.update_event_list_item()
+        self.scenario_preview.set_dialogue_text(value)
 
         self.mark_modified()
 
