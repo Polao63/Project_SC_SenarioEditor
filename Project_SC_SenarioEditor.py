@@ -1110,14 +1110,60 @@ class MainWindow(QWidget):
             with open(file_path, "r", encoding="utf-8") as file:
                 loaded_data = json.load(file)
 
-            if "ScenarioEvents" not in loaded_data:
-                QMessageBox.warning(
-                    self,
-                    "잘못된 파일",
-                    "시나리오 파일이 아닙니다.\n올바른 시나리오 JSON 파일을 선택해주세요."
-                )
-                return
-                                 
+            required_keys_by_type = {
+                "dialogue": ["speaker", "expression", "text"],
+                "narration": ["text"],
+                "background": ["background"],
+                "transition": ["transition_type"],
+                "sound": ["sound_type", "sound_name"]
+            }
+
+            for event in loaded_data["ScenarioEvents"]:
+
+                if not isinstance(event, dict):
+                    QMessageBox.warning(
+                        self,
+                        "잘못된 파일",
+                        "이벤트 데이터는 딕셔너리여야 합니다."
+                    )
+                    return
+
+                if "type" not in event:
+                    QMessageBox.warning(
+                        self,
+                        "잘못된 파일",
+                        "이벤트에 type 정보가 없습니다."
+                    )
+                    return
+
+                event_type = event["type"]
+
+                if event_type not in required_keys_by_type:
+                    QMessageBox.warning(
+                        self,
+                        "잘못된 파일",
+                        f"알 수 없는 이벤트 타입입니다: {event_type}"
+                    )
+                    return
+
+                required_keys = required_keys_by_type[event_type]
+
+                if not all(key in event for key in required_keys):
+                    QMessageBox.warning(
+                        self,
+                        "잘못된 파일",
+                        f"{event_type} 이벤트에 필요한 정보가 누락되었습니다."
+                    )
+                    return
+
+                if not all(isinstance(event[key], str) for key in required_keys):
+                    QMessageBox.warning(
+                        self,
+                        "잘못된 파일",
+                        f"{event_type} 이벤트의 필수 정보는 문자열이어야 합니다."
+                    )
+                    return
+                                            
         except FileNotFoundError:
             QMessageBox.warning(
                 self,
