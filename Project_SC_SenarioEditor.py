@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QSplitter,
 )
 from PySide6.QtCore import Qt, QUrl, QSignalBlocker
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap, QColor, QShortcut, QKeySequence
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 if getattr(sys, "frozen", False):
@@ -51,6 +51,14 @@ def save_settings(self):
 
 
 class MainWindow(QWidget):
+    EVENT_COLORS = {
+        "dialogue": "#D6E8FF",
+        "narration": "#E8DDF5",
+        "background": "#D9F0DF",
+        "transition": "#FFE5CC",
+        "sound": "#FFF2BF"
+    }
+
     def __init__(self):
         super().__init__()
 
@@ -64,6 +72,8 @@ class MainWindow(QWidget):
         self.current_index = -1
 
         self.is_modified = False
+
+        self.current_file_path = None
 
         self.setWindowTitle("ProjectSC Scenario Editor")
 
@@ -79,15 +89,29 @@ class MainWindow(QWidget):
 
         self.save_button = QPushButton("시나리오 파일 저장", self)
         self.save_button.clicked.connect(self.save_file)
+        self.save_shortcut = QShortcut(QKeySequence("Ctrl+S"), self)
+        self.save_shortcut.activated.connect(self.save_file)
+        self.save_as_shortcut = QShortcut(QKeySequence("Ctrl+Shift+S"), self)
+        self.save_as_shortcut.activated.connect(self.save_file_as)
 
         self.moveup_event_button = QPushButton("↑", self)
         self.moveup_event_button.clicked.connect(self.moveup_event_list_item)
+        self.moveup_shortcut = QShortcut(QKeySequence("Ctrl+Up"), self)
+        self.moveup_shortcut.activated.connect(self.moveup_event_list_item)
 
         self.movedown_event_button = QPushButton("↓", self)
         self.movedown_event_button.clicked.connect(self.movedown_event_list_item)
+        self.movedown_shortcut = QShortcut(QKeySequence("Ctrl+Down"), self)
+        self.movedown_shortcut.activated.connect(self.movedown_event_list_item)
+
+        self.move_event_to_index_button = QPushButton("선택된 이벤트 이동", self)
+        self.move_event_to_index_button.clicked.connect(self.move_event_to_index)
 
         self.add_event_button = QPushButton("이벤트 추가", self)
         self.add_event_button.clicked.connect(self.add_event_list_item)
+
+        self.duplicate_event_button = QPushButton("선택된 이벤트 복제", self)
+        self.duplicate_event_button.clicked.connect(self.duplicate_event_list_item)
 
         self.load_button.show()
 
@@ -101,8 +125,10 @@ class MainWindow(QWidget):
         left_layout.addWidget(self.load_button)
         left_layout.addWidget(self.event_list)
         left_layout.addWidget(self.add_event_button)
+        left_layout.addWidget(self.duplicate_event_button)
         left_layout.addWidget(self.moveup_event_button)
         left_layout.addWidget(self.movedown_event_button)
+        left_layout.addWidget(self.move_event_to_index_button)
         left_layout.addWidget(self.delete_event_button)
         left_layout.addWidget(self.save_button)
 
@@ -409,10 +435,14 @@ class MainWindow(QWidget):
         self.scenario_preview.clear_background()
         
         self.is_modified = False
+
+        self.current_file_path = None
+
         self.setWindowTitle("ProjectSC Scenario Editor")
 
     def select_event(self, index):
-        if index < 0:
+        if not 0 <= index < len(self.scenario_events):
+            self.current_index = -1
             self.editor_stack.hide()
             self.empty_label.show()
             return
@@ -422,9 +452,9 @@ class MainWindow(QWidget):
         
         self.current_index = index
 
-        event = self.scenario_events[index]
+        event = self.scenario_events[self.current_index]
 
-        background_name = self.find_previous_background(index)
+        background_name = self.find_previous_background(self.current_index)
 
         if background_name is not None:
             self.update_background_preview(background_name)
@@ -671,10 +701,11 @@ class MainWindow(QWidget):
                         "sound_action": "Play"
                     }
 
-            self.scenario_events.append(new_event)
+            new_index = self.event_list.currentRow() + 1
+            self.scenario_events.insert(new_index, new_event)
+
             self.refresh_event_list()
 
-            new_index = len(self.scenario_events) - 1
             self.event_list.setCurrentRow(new_index)
             self.mark_modified()
 
@@ -719,26 +750,76 @@ class MainWindow(QWidget):
     def delete_event_list_item(self):
         if not 0 <= self.current_index < len(self.scenario_events):
             return
-        del self.scenario_events[self.current_index]
-        self.event_list.takeItem(self.current_index)
+
+        deleted_index = self.current_index
+
+        del self.scenario_events[deleted_index]
+        self.refresh_event_list()
+
+        if self.scenario_events:
+            new_index = min(deleted_index, len(self.scenario_events) - 1)
+            self.event_list.setCurrentRow(new_index)
+
         self.mark_modified()
 
     def moveup_event_list_item(self):
-        if self.current_index <= 0:
+
+        if not 0 < self.current_index < len(self.scenario_events):
             return
+        
+        target_index = self.current_index - 1
+
         event = self.scenario_events.pop(self.current_index)
-        self.scenario_events.insert(self.current_index - 1, event)
-        self.event_list.setCurrentRow(self.current_index - 1)
+        self.scenario_events.insert(target_index, event)
         self.refresh_event_list()
+        self.event_list.setCurrentRow(target_index)
         self.mark_modified()
 
     def movedown_event_list_item(self):
-        if self.current_index >= len(self.scenario_events) - 1:
+
+        if not 0 <= self.current_index < len(self.scenario_events) - 1:
             return
+        
+        target_index = self.current_index + 1
+
         event = self.scenario_events.pop(self.current_index)
-        self.scenario_events.insert(self.current_index + 1, event)
-        self.event_list.setCurrentRow(self.current_index + 1)
+        self.scenario_events.insert(target_index, event)
         self.refresh_event_list()
+        self.event_list.setCurrentRow(target_index)
+        self.mark_modified()
+
+    def move_event_to_index(self):
+        if not 0 <= self.event_list.currentRow() < len(self.scenario_events):
+            return
+
+        target_index, ok = QInputDialog.getInt(
+            self,
+            "이벤트 이동",
+            "이동할 이벤트 번호:",
+            value=self.current_index,
+            minValue=0,
+            maxValue=len(self.scenario_events) - 1
+        )
+        if not ok or target_index == self.current_index:
+            return
+
+        event = self.scenario_events.pop(self.current_index)
+        self.scenario_events.insert(target_index, event)
+        self.refresh_event_list()
+        self.event_list.setCurrentRow(target_index)
+        self.mark_modified()
+
+    def duplicate_event_list_item(self):
+        if not 0 <= self.current_index < len(self.scenario_events):
+            return
+
+        new_index = self.current_index + 1
+        new_event = self.scenario_events[self.current_index].copy()
+
+        self.scenario_events.insert(new_index, new_event)
+        self.refresh_event_list()
+
+        self.event_list.setCurrentRow(new_index)
         self.mark_modified()
 
     def refresh_event_list(self):
@@ -777,6 +858,15 @@ class MainWindow(QWidget):
                     )
                 case _:
                     print("알 수 없는 타입")
+
+            item = self.event_list.item(index)
+            self.apply_event_color(item, event_type)
+
+    def apply_event_color(self, item, event_type):
+        color = self.EVENT_COLORS.get(event_type)
+
+        if color:
+            item.setBackground(QColor(color))
 
     def edit_background_resource(self):
         background_name = self.background_combo.currentText()
@@ -1212,53 +1302,23 @@ class MainWindow(QWidget):
         self.scenario_data = loaded_data
         self.scenario_events = self.scenario_data["ScenarioEvents"]
 
-        self.event_list.clear()
+        self.refresh_event_list()
+
+        self.current_file_path = file_path
 
         self.is_modified = False
         self.setWindowTitle("ProjectSC Scenario Editor")
 
-
-        for index, event in enumerate(self.scenario_events):
-            event_type = event["type"]
-
-            match event_type:
-                case "dialogue":
-                    speaker = event["speaker"]
-                    expression = event["expression"]
-                    text = event["text"]
-
-                    self.event_list.addItem(f"{index} {event_type} {speaker} {expression} {text}")
-
-                case "narration":
-                    text = event["text"]
-
-                    self.event_list.addItem(f"{index} {event_type} {text}")
-
-                case "background":
-                    background = event["background"]
-
-                    self.event_list.addItem(f"{index} {event_type} {background}")
-
-                case "transition":
-                    transition_type = event["transition_type"]
-
-                    self.event_list.addItem(f"{index} {event_type} {transition_type}")
-
-                case "sound":
-                    sound_type = event["sound_type"]
-                    sound_name = event["sound_name"]
-                    self.event_list.addItem(f"{index} {event_type} {sound_type} {sound_name}")
-
-                case _:
-                    print("대본에 알 수 없는 타입이 있습니다.")
-            
+       
     def save_file(self):
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "대본 저장",
-            "",
-            "JSON 파일 (*.json)"
-        )
+        if not self.current_file_path:
+            self.save_file_as()
+            return
+        
+        file_path = self.current_file_path
+
+        if not file_path:
+            return
 
         if file_path:
             with open(file_path, "w", encoding="utf-8") as file:
@@ -1268,8 +1328,25 @@ class MainWindow(QWidget):
                     ensure_ascii=False,
                     indent=2
                 )
+            self.current_file_path = file_path 
             self.is_modified = False
             self.setWindowTitle("ProjectSC Scenario Editor")
+
+    def save_file_as(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "대본 저장",
+            "",
+            "JSON 파일 (*.json)"
+            )
+        
+        if not file_path:
+            return
+        
+        self.current_file_path = file_path
+
+        self.save_file()
+
 
     def add_background_resource(self):
         
